@@ -9,10 +9,8 @@ import android.graphics.Color
 import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.content.Context
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import android.view.View
 import android.widget.*
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
@@ -30,6 +28,7 @@ class MainActivity : Activity() {
  private var showingDashboard = false
  private var lastWifi = false
  private var screenGeneration = 0
+ private val retries = mutableListOf<Runnable>()
  private val wifiMonitor = object:Runnable {
   override fun run() {
    val connected=onWifi()
@@ -68,7 +67,9 @@ class MainActivity : Activity() {
   player.addListener(object:Player.Listener {
    override fun onPlayerError(error:PlaybackException) {
     caption?.text="Błąd strumienia — ponawiam"
-    handler.postDelayed({ if(players.contains(player)&&onWifi()) { player.prepare();player.playWhenReady=true } },5000)
+    val retry=Runnable { if(players.contains(player)&&onWifi()) { player.prepare();player.playWhenReady=true } }
+    retries.add(retry)
+    handler.postDelayed(retry,5000)
    }
   })
   player.setMediaItem(MediaItem.fromUri(url));player.prepare();player.playWhenReady=true
@@ -79,7 +80,7 @@ class MainActivity : Activity() {
  private fun label(s:String, size:Float=17f):TextView = TextView(this).apply { text=s; textSize=size; setTextColor(Color.WHITE); setPadding(10,12,10,12) }
  private fun root():LinearLayout = LinearLayout(this).apply { orientation=1; setPadding(12,12,12,12); setBackgroundColor(Color.rgb(17,24,34)) }
  private fun button(s:String,action:()->Unit)=Button(this).apply { text=s; setOnClickListener{action()} }
- private fun stop() { screenGeneration++;running=false; handler.removeCallbacks(refresh); players.forEach{it.release()}; players.clear() }
+ private fun stop() { screenGeneration++;running=false; handler.removeCallbacks(refresh); retries.forEach { handler.removeCallbacks(it) }; retries.clear(); players.forEach{it.release()}; players.clear() }
  private fun dashboard() {
   stop(); running=true; showingDashboard=true
   val page=root()
@@ -99,6 +100,8 @@ class MainActivity : Activity() {
    if(wifi && localRtsp(url)) {
     try {
      attachStream(playerView,url,caption)
+     box.setOnClickListener{fullscreen(url)}
+     caption.setOnClickListener{fullscreen(url)}
      playerView.setOnClickListener{fullscreen(url)}
     } catch(e:Exception){caption.text="Kamera $i: błąd"}
    } else caption.text=if(!wifi) "Kamera $i: wymagane Wi-Fi" else "Kamera $i: wpisz lokalny adres RTSP (IP)"
