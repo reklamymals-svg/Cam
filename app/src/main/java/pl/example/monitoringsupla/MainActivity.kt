@@ -29,12 +29,14 @@ class MainActivity : Activity() {
  private var lastWifi = false
  private var screenGeneration = 0
  private val retries = mutableListOf<Runnable>()
+ private var fullscreenUrl:String? = null
  private val wifiMonitor = object:Runnable {
   override fun run() {
    val connected=onWifi()
    if(connected!=lastWifi) {
     lastWifi=connected
     if(!connected) {
+     retries.forEach { handler.removeCallbacks(it) }; retries.clear()
      players.forEach { it.stop();it.release() }
      players.clear()
     }
@@ -82,7 +84,7 @@ class MainActivity : Activity() {
  private fun button(s:String,action:()->Unit)=Button(this).apply { text=s; setOnClickListener{action()} }
  private fun stop() { screenGeneration++;running=false; handler.removeCallbacks(refresh); retries.forEach { handler.removeCallbacks(it) }; retries.clear(); players.forEach{it.release()}; players.clear() }
  private fun dashboard() {
-  stop(); running=true; showingDashboard=true
+  stop(); running=true; showingDashboard=true; fullscreenUrl=null
   val page=root()
   page.addView(label("MONITORING TECHAGE + SUPLA",22f))
   temperature=label("Temperatura: —",21f).also{page.addView(it)}
@@ -122,6 +124,7 @@ class MainActivity : Activity() {
  private fun fullscreen(url:String) {
   stop(); showingDashboard=false
   if(!onWifi() || !localRtsp(url)){dashboard();return}
+  fullscreenUrl=url
   val page=root()
   val view=PlayerView(this).apply { useController=false }
   page.addView(view,LinearLayout.LayoutParams(-1,0,1f))
@@ -151,7 +154,7 @@ class MainActivity : Activity() {
   })
  }
  private fun settings() {
-  stop(); showingDashboard=false
+  stop(); showingDashboard=false; fullscreenUrl=null
   val page=root()
   val scroll=ScrollView(this)
   val fields=LinearLayout(this).apply{orientation=1}
