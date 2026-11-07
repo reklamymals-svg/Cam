@@ -39,7 +39,8 @@ class MainActivity : Activity() {
      players.forEach { it.stop();it.release() }
      players.clear()
     }
-    if(showingDashboard || !connected) dashboard()
+    if(showingDashboard) dashboard()
+    else if(players.isNotEmpty() && !connected) dashboard()
    }
    handler.postDelayed(this,3000)
   }
@@ -47,7 +48,8 @@ class MainActivity : Activity() {
  private fun onWifi():Boolean {
   val cm=getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
   val network=cm.activeNetwork ?: return false
-  return cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)==true
+  val caps=cm.getNetworkCapabilities(network) ?: return false
+  return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
  }
  private fun localRtsp(url:String):Boolean {
   val uri=try { Uri.parse(url) } catch(_:Exception) { return false }
@@ -170,6 +172,8 @@ class MainActivity : Activity() {
   })
   scroll.addView(fields);page.addView(scroll);setContentView(page)
  }
+ override fun onStop(){players.forEach{it.pause()};super.onStop()}
+ override fun onStart(){super.onStart();if(onWifi())players.forEach{it.play()}}
  override fun onDestroy(){handler.removeCallbacks(wifiMonitor);stop();client.dispatcher.cancelAll();super.onDestroy()}
  override fun onBackPressed(){if(showingDashboard) super.onBackPressed() else dashboard()}
 }
