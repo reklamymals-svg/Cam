@@ -26,6 +26,22 @@ class MainActivity : Activity() {
  private val handler = Handler(Looper.getMainLooper())
  private val client = OkHttpClient()
  private var running = false
+ private var showingDashboard = false
+ private var lastWifi = false
+ private val wifiMonitor = object:Runnable {
+  override fun run() {
+   val connected=onWifi()
+   if(connected!=lastWifi) {
+    lastWifi=connected
+    if(!connected) {
+     players.forEach { it.stop();it.release() }
+     players.clear()
+    }
+    if(showingDashboard) dashboard() else if(!connected) dashboard()
+   }
+   handler.postDelayed(this,3000)
+  }
+ }
  private fun onWifi():Boolean {
   val cm=getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
   val network=cm.activeNetwork ?: return false
@@ -44,13 +60,13 @@ class MainActivity : Activity() {
  }
  private var temperature: TextView? = null
  private val refresh = object:Runnable { override fun run() { if(running) { loadTemperature(); handler.postDelayed(this,60000) } } }
- override fun onCreate(savedInstanceState:Bundle?) { super.onCreate(savedInstanceState); dashboard() }
+ override fun onCreate(savedInstanceState:Bundle?) { super.onCreate(savedInstanceState); lastWifi=onWifi();dashboard();handler.postDelayed(wifiMonitor,3000) }
  private fun label(s:String, size:Float=17f):TextView = TextView(this).apply { text=s; textSize=size; setTextColor(Color.WHITE); setPadding(10,12,10,12) }
  private fun root():LinearLayout = LinearLayout(this).apply { orientation=1; setPadding(12,12,12,12); setBackgroundColor(Color.rgb(17,24,34)) }
  private fun button(s:String,action:()->Unit)=Button(this).apply { text=s; setOnClickListener{action()} }
  private fun stop() { running=false; handler.removeCallbacks(refresh); players.forEach{it.release()}; players.clear() }
  private fun dashboard() {
-  stop(); running=true
+  stop(); running=true; showingDashboard=true
   val page=root()
   page.addView(label("MONITORING TECHAGE + SUPLA",22f))
   temperature=label("Temperatura: —",21f).also{page.addView(it)}
@@ -86,7 +102,7 @@ class MainActivity : Activity() {
   handler.post(refresh)
  }
  private fun fullscreen(url:String) {
-  stop()
+  stop(); showingDashboard=false
   if(!onWifi()){dashboard();return}
   val page=root()
   val view=PlayerView(this)
@@ -115,14 +131,17 @@ class MainActivity : Activity() {
   })
  }
  private fun settings() {
-  stop()
+  stop(); showingDashboard=false
   val page=root()
   val scroll=ScrollView(this)
   val fields=LinearLayout(this).apply{orientation=1}
   val edits=mutableMapOf<String,EditText>()
   fun field(key:String,title:String) {
    fields.addView(label(title,15f))
-   val edit=EditText(this).apply{setText(prefs.getString(key,""));setSingleLine(true);setTextColor(Color.WHITE);setHintTextColor(Color.LTGRAY)}
+   val edit=EditText(this).apply{
+    setText(prefs.getString(key,""));setSingleLine(true);setTextColor(Color.WHITE);setHintTextColor(Color.LTGRAY)
+    if(key=="suplaToken") inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+   }
    edits[key]=edit;fields.addView(edit)
   }
   fields.addView(label("USTAWIENIA — adresy RTSP z kamer ONVIF",20f))
@@ -136,6 +155,6 @@ class MainActivity : Activity() {
   })
   scroll.addView(fields);page.addView(scroll);setContentView(page)
  }
- override fun onDestroy(){stop();super.onDestroy()}
+ override fun onDestroy(){handler.removeCallbacks(wifiMonitor);stop();client.dispatcher.cancelAll();super.onDestroy()}
  override fun onBackPressed(){dashboard()}
 }
