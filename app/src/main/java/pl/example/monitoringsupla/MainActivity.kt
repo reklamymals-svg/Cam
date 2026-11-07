@@ -29,6 +29,7 @@ class MainActivity : Activity() {
  private var running = false
  private var showingDashboard = false
  private var lastWifi = false
+ private var screenGeneration = 0
  private val wifiMonitor = object:Runnable {
   override fun run() {
    val connected=onWifi()
@@ -38,7 +39,7 @@ class MainActivity : Activity() {
      players.forEach { it.stop();it.release() }
      players.clear()
     }
-    if(showingDashboard) dashboard()
+    if(showingDashboard || !connected) dashboard()
    }
    handler.postDelayed(this,3000)
   }
@@ -76,7 +77,7 @@ class MainActivity : Activity() {
  private fun label(s:String, size:Float=17f):TextView = TextView(this).apply { text=s; textSize=size; setTextColor(Color.WHITE); setPadding(10,12,10,12) }
  private fun root():LinearLayout = LinearLayout(this).apply { orientation=1; setPadding(12,12,12,12); setBackgroundColor(Color.rgb(17,24,34)) }
  private fun button(s:String,action:()->Unit)=Button(this).apply { text=s; setOnClickListener{action()} }
- private fun stop() { running=false; handler.removeCallbacks(refresh); players.forEach{it.release()}; players.clear() }
+ private fun stop() { screenGeneration++;running=false; handler.removeCallbacks(refresh); players.forEach{it.release()}; players.clear() }
  private fun dashboard() {
   stop(); running=true; showingDashboard=true
   val page=root()
@@ -117,7 +118,7 @@ class MainActivity : Activity() {
   stop(); showingDashboard=false
   if(!onWifi() || !localRtsp(url)){dashboard();return}
   val page=root()
-  val view=PlayerView(this)
+  val view=PlayerView(this).apply { useController=false }
   page.addView(view,LinearLayout.LayoutParams(-1,0,1f))
   attachStream(view,url)
   page.addView(button("Wróć do 4 kamer"){dashboard()});setContentView(page)
@@ -126,9 +127,11 @@ class MainActivity : Activity() {
   val endpoint=prefs.getString("suplaUrl","").orEmpty()
   val token=prefs.getString("suplaToken","").orEmpty()
   if(!endpoint.startsWith("https://")||token.isBlank()) {temperature?.text="Temperatura SUPLA: skonfiguruj API";return}
-  val req=Request.Builder().url(endpoint).header("Authorization","Bearer $token").build()
+  val generation=screenGeneration
+  val req=try { Request.Builder().url(endpoint).header("Authorization","Bearer $token").build() }
+   catch(_:IllegalArgumentException) { temperature?.text="SUPLA: nieprawidłowy adres API";return }
   client.newCall(req).enqueue(object:Callback {
-   override fun onFailure(call:Call,e:IOException){runOnUiThread{if(running)temperature?.text="SUPLA: brak połączenia"}}
+   override fun onFailure(call:Call,e:IOException){runOnUiThread{if(running && showingDashboard && generation==screenGeneration)temperature?.text="SUPLA: brak połączenia"}}
    override fun onResponse(call:Call,response:Response) {
     response.use{
      val data=it.body?.string().orEmpty()
@@ -137,7 +140,7 @@ class MainActivity : Activity() {
       val value=json.optJSONObject("state")?.opt("temperature") ?: json.opt("temperature")
       if(it.isSuccessful&&value!=null) "Temperatura: $value °C" else "SUPLA: sprawdź adres API i token"
      }catch(e:Exception){"SUPLA: błąd danych"}
-     runOnUiThread{if(running)temperature?.text=result}
+     runOnUiThread{if(running && showingDashboard && generation==screenGeneration)temperature?.text=result}
     }
    }
   })
@@ -168,5 +171,5 @@ class MainActivity : Activity() {
   scroll.addView(fields);page.addView(scroll);setContentView(page)
  }
  override fun onDestroy(){handler.removeCallbacks(wifiMonitor);stop();client.dispatcher.cancelAll();super.onDestroy()}
- override fun onBackPressed(){dashboard()}
+ override fun onBackPressed(){if(showingDashboard) super.onBackPressed() else dashboard()}
 }
