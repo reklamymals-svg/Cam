@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.content.Context
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import android.view.View
@@ -37,7 +38,7 @@ class MainActivity : Activity() {
      players.forEach { it.stop();it.release() }
      players.clear()
     }
-    if(showingDashboard) dashboard() else if(!connected) dashboard()
+    if(showingDashboard) dashboard()
    }
    handler.postDelayed(this,3000)
   }
@@ -46,6 +47,17 @@ class MainActivity : Activity() {
   val cm=getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
   val network=cm.activeNetwork ?: return false
   return cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)==true
+ }
+ private fun localRtsp(url:String):Boolean {
+  val uri=try { Uri.parse(url) } catch(_:Exception) { return false }
+  if(uri.scheme!="rtsp") return false
+  val host=uri.host ?: return false
+  val parts=host.split(".").map { it.toIntOrNull() ?: return false }
+  if(parts.size!=4 || parts.any { it !in 0..255 }) return false
+  return parts[0]==10 ||
+   (parts[0]==172 && parts[1] in 16..31) ||
+   (parts[0]==192 && parts[1]==168) ||
+   (parts[0]==169 && parts[1]==254)
  }
  private fun attachStream(view:PlayerView, url:String, caption:TextView?=null) {
   val player=ExoPlayer.Builder(this).build()
@@ -81,12 +93,12 @@ class MainActivity : Activity() {
    val p=GridLayout.LayoutParams(GridLayout.spec((i-1)/2,1f),GridLayout.spec((i-1)%2,1f)).apply{width=0;height=0;setMargins(3,3,3,3)}
    grid.addView(box,p)
    val url=prefs.getString("cam$i","").orEmpty()
-   if(wifi && url.startsWith("rtsp://")) {
+   if(wifi && localRtsp(url)) {
     try {
      attachStream(playerView,url,caption)
      playerView.setOnClickListener{fullscreen(url)}
     } catch(e:Exception){caption.text="Kamera $i: błąd"}
-   } else caption.text=if(!wifi) "Kamera $i: wymagane Wi-Fi" else "Kamera $i: skonfiguruj RTSP"
+   } else caption.text=if(!wifi) "Kamera $i: wymagane Wi-Fi" else "Kamera $i: wpisz lokalny adres RTSP (IP)"
   }
   page.addView(grid,LinearLayout.LayoutParams(-1,0,1f))
   for(i in 1..2) {
@@ -103,7 +115,7 @@ class MainActivity : Activity() {
  }
  private fun fullscreen(url:String) {
   stop(); showingDashboard=false
-  if(!onWifi()){dashboard();return}
+  if(!onWifi() || !localRtsp(url)){dashboard();return}
   val page=root()
   val view=PlayerView(this)
   page.addView(view,LinearLayout.LayoutParams(-1,0,1f))
