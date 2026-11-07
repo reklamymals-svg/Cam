@@ -7,6 +7,10 @@ import android.os.Looper
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import android.view.View
 import android.widget.*
 import androidx.media3.common.MediaItem
@@ -22,6 +26,22 @@ class MainActivity : Activity() {
  private val handler = Handler(Looper.getMainLooper())
  private val client = OkHttpClient()
  private var running = false
+ private fun onWifi():Boolean {
+  val cm=getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+  val network=cm.activeNetwork ?: return false
+  return cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)==true
+ }
+ private fun attachStream(view:PlayerView, url:String, caption:TextView?=null) {
+  val player=ExoPlayer.Builder(this).build()
+  view.player=player;players.add(player)
+  player.addListener(object:Player.Listener {
+   override fun onPlayerError(error:PlaybackException) {
+    caption?.text="Błąd strumienia — ponawiam"
+    handler.postDelayed({ if(players.contains(player)&&onWifi()) { player.prepare();player.playWhenReady=true } },5000)
+   }
+  })
+  player.setMediaItem(MediaItem.fromUri(url));player.prepare();player.playWhenReady=true
+ }
  private var temperature: TextView? = null
  private val refresh = object:Runnable { override fun run() { if(running) { loadTemperature(); handler.postDelayed(this,60000) } } }
  override fun onCreate(savedInstanceState:Bundle?) { super.onCreate(savedInstanceState); dashboard() }
@@ -34,6 +54,8 @@ class MainActivity : Activity() {
   val page=root()
   page.addView(label("MONITORING TECHAGE + SUPLA",22f))
   temperature=label("Temperatura: —",21f).also{page.addView(it)}
+  val wifi=onWifi()
+  if(!wifi) page.addView(label("Kamery działają wyłącznie przez Wi-Fi. Połącz z domową siecią."))
   val grid=GridLayout(this).apply{columnCount=2;rowCount=2}
   for(i in 1..4) {
    val box=LinearLayout(this).apply {orientation=1;setBackgroundColor(Color.BLACK)}
@@ -43,14 +65,12 @@ class MainActivity : Activity() {
    val p=GridLayout.LayoutParams(GridLayout.spec((i-1)/2,1f),GridLayout.spec((i-1)%2,1f)).apply{width=0;height=0;setMargins(3,3,3,3)}
    grid.addView(box,p)
    val url=prefs.getString("cam$i","").orEmpty()
-   if(url.startsWith("rtsp://")) {
+   if(wifi && url.startsWith("rtsp://")) {
     try {
-     val player=ExoPlayer.Builder(this).build()
-     player.setMediaItem(MediaItem.fromUri(url));player.prepare();player.playWhenReady=true
-     playerView.player=player;players.add(player)
+     attachStream(playerView,url,caption)
      playerView.setOnClickListener{fullscreen(url)}
     } catch(e:Exception){caption.text="Kamera $i: błąd"}
-   } else caption.text="Kamera $i: skonfiguruj RTSP"
+   } else caption.text=if(!wifi) "Kamera $i: wymagane Wi-Fi" else "Kamera $i: skonfiguruj RTSP"
   }
   page.addView(grid,LinearLayout.LayoutParams(-1,0,1f))
   for(i in 1..2) {
@@ -67,11 +87,11 @@ class MainActivity : Activity() {
  }
  private fun fullscreen(url:String) {
   stop()
+  if(!onWifi()){dashboard();return}
   val page=root()
   val view=PlayerView(this)
   page.addView(view,LinearLayout.LayoutParams(-1,0,1f))
-  val player=ExoPlayer.Builder(this).build();players.add(player)
-  view.player=player;player.setMediaItem(MediaItem.fromUri(url));player.prepare();player.playWhenReady=true
+  attachStream(view,url)
   page.addView(button("Wróć do 4 kamer"){dashboard()});setContentView(page)
  }
  private fun loadTemperature(){
